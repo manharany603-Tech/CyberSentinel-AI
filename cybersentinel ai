@@ -1,0 +1,44 @@
+# 🛡️ CyberSentinel AI — MK
+
+**All-in-One Cyber Security Toolkit**
+
+CyberSentinel AI is a Python-based defensive cybersecurity toolkit with a simple Tkinter GUI.
+
+## Features
+
+* URL Phishing Detector
+* Password Security Checker
+* Port Scanner
+* File Hash Scanner
+* Security Log Analyzer
+* SSL Certificate Checker
+* Web Security Headers Checker
+* Email Header Analyzer
+* Password Breach Checker
+
+## Technology
+
+* Python
+* Tkinter
+* Socket
+* SSL
+* Hashlib
+* urllib
+* Regular Expressions
+* Multithreading
+
+## Run
+
+```bash
+python cybersentinel.py
+```
+
+## Disclaimer
+
+This project is intended for educational and defensive cybersecurity purposes. Use scanning features only on systems and networks where you have permission.
+
+## Author
+
+**MK**
+
+CyberSentinel AI — Educational Cybersecurity Project
