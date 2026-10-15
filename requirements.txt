@@ -1,0 +1,199 @@
+"""
+CYBERSENTINEL AI - Web Version (Render Ready)
+Run locally: python app.py
+"""
+
+from flask import Flask, request, render_template_string
+import re, os, ssl, socket, hashlib, urllib.request
+from datetime import datetime
+
+app = Flask(__name__)
+
+# ---------- ANALYSIS ENGINES (same logic as desktop) ----------
+
+SHORTENERS = ["bit.ly", "tinyurl", "goo.gl", "t.co", "is.gd", "buff.ly"]
+BRANDS = ["paypal", "apple", "google", "amazon", "facebook", "netflix",
+          "microsoft", "binance", "whatsapp", "instagram"]
+SUSPICIOUS_KW = ["login", "verify", "update", "secure", "account", "banking",
+                 "confirm", "password", "wallet", "signin"]
+
+def phishing_score(url):
+    score, reasons = 0, []
+    if not re.match(r"^https?://", url): url = "http://" + url
+    from urllib.parse import urlparse
+    p = urlparse(url); dom = p.netloc.lower()
+    if p.scheme == "http": score += 20; reasons.append("HTTP (no HTTPS) +20")
+    if any(s in dom for s in SHORTENERS): score += 30; reasons.append("URL shortener +30")
+    if dom.count("-") >= 2: score += 15; reasons.append("Multiple dashes +15")
+    if re.search(r"\d+\.\d+\.\d+\.\d+", dom): score += 25; reasons.append("IP as domain +25")
+    if any(k in url.lower() for k in SUSPICIOUS_KW): score += 15; reasons.append("Suspicious keyword +15")
+    if any(b in dom for b in BRANDS) and dom.split(".")[-1] not in ("com","org","net","in"):
+        score += 25; reasons.append("Fake brand TLD +25")
+    if "@" in url: score += 30; reasons.append("'@' in URL +30")
+    return min(score, 100), reasons
+
+def verdict(score, mal="MALICIOUS", sus="SUSPICIOUS", ok="SAFE"):
+    if score >= 60: return f"⚠️ {mal}", "bad"
+    if score >= 30: return f"⚠️ {sus}", "warn"
+    return f"✅ {ok}", "good"
+
+# ---------- WEB UI ----------
+
+PAGE = """
+<!DOCTYPE html>
+<html><head>
+<title>CyberSentinel AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+ body{background:#0d1117;color:#c9d1d9;font-family:Segoe UI,sans-serif;margin:0}
+ header{background:#161b22;padding:20px;text-align:center;border-bottom:2px solid #58a6ff}
+ h1{color:#58a6ff;margin:0}
+ .sub{color:#8b949e;font-size:13px}
+ nav{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:14px;background:#010409}
+ nav a{color:#58a6ff;text-decoration:none;padding:8px 14px;border:1px solid #30363d;border-radius:6px;font-size:14px}
+ nav a:hover{background:#58a6ff;color:#0d1117}
+ main{max-width:760px;margin:20px auto;padding:0 16px}
+ .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:20px;margin-bottom:16px}
+ input,textarea{width:100%;background:#0d1117;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:10px;font-family:Consolas,monospace;box-sizing:border-box}
+ button{background:#58a6ff;color:#0d1117;border:none;padding:10px 22px;border-radius:6px;font-weight:bold;cursor:pointer;margin-top:10px}
+ button:hover{background:#79b8ff}
+ .good{color:#3fb950}.warn{color:#d29922}.bad{color:#f85149}
+ .result{background:#010409;border-radius:8px;padding:14px;margin-top:14px;font-family:Consolas,monospace;white-space:pre-wrap;font-size:14px}
+ ul{margin:8px 0;padding-left:20px}
+</style></head><body>
+<header><h1>🛡️ CYBERSENTINEL AI</h1><div class="sub">Real-Time Cyber Threat Analysis Toolkit</div></header>
+<nav>
+ <a href="/">URL Phishing</a><a href="/password">Password</a><a href="/email">Email</a>
+ <a href="/breach">Breach Check</a><a href="/ssl">SSL Check</a><a href="/file">File Scan</a><a href="/logs">Log Analyzer</a>
+</nav>
+<main>{{ body | safe }}</main>
+</body></html>
+"""
+
+def page(title, form, result=""):
+    return render_template_string(PAGE, body=f"""
+    <div class="card"><h2>{title}</h2>{form}{result}</div>""")
+
+FORM_URL = '<form method="post"><input name="url" placeholder="https://example-login.xyz" required><br><button>Analyze URL</button></form>'
+FORM_PWD = '<form method="post"><input type="password" name="pwd" placeholder="Password daalein" required><br><button>Check Strength + Breach</button></form>'
+FORM_EMAIL = '<form method="post"><textarea name="email" rows="8" placeholder="Yahan email ka content paste karein..." required></textarea><br><button>Analyze Email</button></form>'
+FORM_SSL = '<form method="post"><input name="host" placeholder="google.com" required><br><button>Check SSL Certificate</button></form>'
+FORM_FILE = '<form method="post" enctype="multipart/form-data"><input type="file" name="file" required style="padding:6px"><br><button>Scan File (Hash)</button></form>'
+FORM_LOGS = '<form method="post"><textarea name="logs" rows="8" placeholder="Log lines yahan paste karein..." required></textarea><br><button>Analyze Logs</button></form>'
+
+# ---------- ROUTES ----------
+
+@app.route("/", methods=["GET", "POST"])
+def r_url():
+    result = ""
+    if request.method == "POST":
+        url = request.form["url"].strip()
+        score, reasons = phishing_score(url)
+        v, cls = verdict(score)
+        lis = "".join(f"<li>{r}</li>" for r in reasons) or "<li>Koi major red flag nahi mila</li>"
+        result = f'<div class="result {cls}">Risk Score: {score}/100\n{v}\n<ul>{lis}</ul></div>'
+    return page("URL Phishing Detector", FORM_URL, result)
+
+@app.route("/password", methods=["GET", "POST"])
+def r_pwd():
+    result = ""
+    if request.method == "POST":
+        pwd = request.form["pwd"]; score = 0
+        if len(pwd) >= 12: score += 30
+        elif len(pwd) >= 8: score += 20
+        if re.search(r"[a-z]", pwd): score += 10
+        if re.search(r"[A-Z]", pwd): score += 10
+        if re.search(r"\d", pwd): score += 15
+        if re.search(r"[^a-zA-Z0-9]", pwd): score += 20
+        if any(c in pwd.lower() for c in ["123456","password","qwerty","admin"]): score = 0
+        v, cls = verdict(score, "WEAK", "MEDIUM", "STRONG")
+        breach = "Breach check ke liye internet chahiye"
+        try:
+            sha1 = hashlib.sha1(pwd.encode()).hexdigest().upper()
+            resp = urllib.request.urlopen(f"https://api.pwnedpasswords.com/range/{sha1[:5]}", timeout=10).read().decode()
+            count = sum(int(l.split(":")[1]) for l in resp.splitlines() if l.split(":")[0] == sha1[5:])
+            breach = (f"❌ PWNED! {count:,} breaches me mila!" if count else "✅ Kisi breach me nahi mila")
+        except Exception:
+            pass
+        result = f'<div class="result {cls}">Strength: {score}/100 {v}\n{breach}</div>'
+    return page("Password Strength + Breach Check", FORM_PWD, result)
+
+@app.route("/email", methods=["GET", "POST"])
+def r_email():
+    result = ""
+    if request.method == "POST":
+        text = request.form["email"].lower(); score, reasons = 0, []
+        triggers = {
+            "Urgency words": (["urgent","immediately","warning","alert","suspended"], 20),
+            "Money/Bank bait": (["wire transfer","refund","lottery","prize","bitcoin","payment"], 20),
+            "Credential demand": (["verify your account","confirm password","login to","otp"], 25),
+        }
+        for name, (words, pts) in triggers.items():
+            if any(w in text for w in words): score += pts; reasons.append(f"{name} +{pts}")
+        v, cls = verdict(score, "PHISHING EMAIL", "SUSPICIOUS", "Looks Legitimate")
+        lis = "".join(f"<li>{r}</li>" for r in reasons) or "<li>Koi red flag nahi</li>"
+        result = f'<div class="result {cls}">Risk Score: {score}/100\n{v}\n<ul>{lis}</ul></div>'
+    return page("Email Phishing Analyzer", FORM_EMAIL, result)
+
+@app.route("/breach", methods=["GET", "POST"])
+def r_breach():
+    result = ""
+    if request.method == "POST":
+        pwd = request.form["pwd"].strip()
+        try:
+            sha1 = hashlib.sha1(pwd.encode()).hexdigest().upper()
+            resp = urllib.request.urlopen(f"https://api.pwnedpasswords.com/range/{sha1[:5]}", timeout=15).read().decode()
+            count = sum(int(l.split(":")[1]) for l in resp.splitlines() if l.split(":")[0] == sha1[5:])
+            if count: result = f'<div class="result bad">❌ PWNED! Ye password {count:,} baar leaks me mila. USE MAT KARO!</div>'
+            else: result = '<div class="result good">✅ Ye password kisi known breach me nahi mila.</div>'
+        except Exception as e:
+            result = f'<div class="result warn">Error: {e}</div>'
+    return page("Data Breach Checker (HaveIBeenPwned)", FORM_PWD, result)
+
+@app.route("/ssl", methods=["GET", "POST"])
+def r_ssl():
+    result = ""
+    if request.method == "POST":
+        host = request.form["host"].strip()
+        try:
+            ctx = ssl.create_default_context()
+            with socket.create_connection((host, 443), timeout=10) as s:
+                with ctx.wrap_socket(s, server_hostname=host) as ss:
+                    cert = ss.getpeercert()
+            issuer = dict(x[0] for x in cert["issuer"]).get("organizationName", "Unknown")
+            exp = datetime.strptime(cert["notAfter"], "%b %d %H:%M:%S %Y %Z")
+            days = (exp - datetime.utcnow()).days
+            msg, cls = (f"❌ EXPIRED {abs(days)} din pehle! MITM risk.", "bad") if days < 0 else \
+                       (f"⚠️ Sirf {days} din bache!", "warn") if days < 30 else (f"✅ Valid, {days} din bache", "good")
+            result = f'<div class="result {cls}">Issuer: {issuer}\nExpires: {cert["notAfter"]}\n{msg}</div>'
+        except Exception as e:
+            result = f'<div class="result bad">❌ Error: {e}</div>'
+    return page("SSL Certificate Checker", FORM_SSL, result)
+
+@app.route("/file", methods=["GET", "POST"])
+def r_file():
+    result = ""
+    if request.method == "POST":
+        f = request.files["file"]
+        h = hashlib.md5()
+        for chunk in iter(lambda: f.stream.read(8192), b""): h.update(chunk)
+        fh = h.hexdigest()
+        known = {"44d88612fea8a8f36de82e1278abb02f", "5d41402abc4b2a76b9719d911017c592"}
+        msg, cls = ("❌ MALICIOUS hash matched!", "bad") if fh in known else ("✅ Known-bad list me match nahi", "good")
+        result = f'<div class="result {cls}">File: {f.filename}\nMD5: {fh}\n{msg}</div>'
+    return page("File Malware Scanner (Hash)", FORM_FILE, result)
+
+@app.route("/logs", methods=["GET", "POST"])
+def r_logs():
+    result = ""
+    if request.method == "POST":
+        logs = request.form["logs"]
+        pats = {"Failed login": r"failed|invalid|error",
+                "SQLi attempt": r"union.*select|or 1=1|drop table",
+                "XSS attempt": r"<script|javascript:|onerror="}
+        lines = [f"  {k}: {len(re.findall(pat, logs, re.I))}" for k, pat in pats.items()]
+        result = f'<div class="result">{"\n".join(lines)}</div>'
+    return page("Suspicious Log Analyzer", FORM_LOGS, result)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
